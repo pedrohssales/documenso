@@ -6,7 +6,6 @@ import type { RecipientRole } from '@prisma/client';
 import Konva from 'konva';
 import 'konva/skia-backend';
 import { DateTime } from 'luxon';
-import fs from 'node:fs';
 import path from 'node:path';
 import type { Canvas } from 'skia-canvas';
 import { FontLibrary } from 'skia-canvas';
@@ -568,60 +567,113 @@ const renderRow = (options: RenderRowOptions) => {
 const renderBranding = async ({ qrToken, i18n }: { qrToken: string | null; i18n: I18n }) => {
   const branding = new Konva.Group();
 
-  const brandingHeight = 12;
+  if (!qrToken) {
+    return branding; // Retorna vazio caso não haja QR Code gerado
+  }
 
-  const text = new Konva.Text({
+  // Monta o link completo de validação
+  const validationUrl = `${NEXT_PUBLIC_WEBAPP_URL()}/share/${qrToken}`;
+  const qrSize = 85;
+
+  // --- 1. Grupo de Textos (Lado Esquerdo) ---
+  const textGroup = new Konva.Group({ x: 0, y: 0 });
+
+  // A. Texto Legal (Lei e Regulamento)
+  const legalText = new Konva.Text({
     x: 0,
-    verticalAlign: 'middle',
-    text: i18n._(msg`Signing certificate provided by`) + ':',
-    fontStyle: fontMedium,
+    y: 0,
+    text: 'Assinado com Assinatura Eletrônica (Art. 4, II da lei 14.063/2020 | Regulamento 910/2014/EC)',
     fontFamily: 'Inter',
     fontSize: textSm,
-    height: brandingHeight,
+    fontStyle: 'bold',
+    fill: textForeground,
+    width: 420,
+    lineHeight: 1.2,
+  });
+  textGroup.add(legalText);
+
+  // B. Cardzinho de Instrução
+  const cardGroup = new Konva.Group({
+    x: 0,
+    y: legalText.getClientRect().height + 12,
   });
 
-  const logoPath = path.join(process.cwd(), 'public/static/logo.png');
-  const logo = fs.readFileSync(logoPath);
+  const instructionText = new Konva.Text({
+    x: 12, // Padding interno X
+    y: 10, // Padding interno Y
+    text: 'Escaneie o QRCode ao lado ou acesse o link de validação para obter o arquivo assinado e os dados de assinatura.',
+    fontFamily: 'Inter',
+    fontSize: textSm,
+    fill: textForeground,
+    width: 390,
+    lineHeight: 1.4,
+  });
 
+  // Fundo do card (Retângulo)
+  const cardBg = new Konva.Rect({
+    x: 0,
+    y: 0,
+    width: instructionText.width() + 24, // Largura + Padding
+    height: instructionText.getClientRect().height + 20, // Altura + Padding
+    fill: '#f8fafc', // Cinza bem clarinho (estilo Tailwind slate-50)
+    stroke: '#e2e8f0', // Bordinha sutil (slate-200)
+    strokeWidth: 1,
+    cornerRadius: 6, // Bordas arredondadas
+  });
+
+  cardGroup.add(cardBg);
+  cardGroup.add(instructionText);
+  textGroup.add(cardGroup);
+
+  // C. Link de Validação
+  const linkGroup = new Konva.Group({
+    x: 0,
+    y: cardGroup.y() + cardGroup.getClientRect().height + 12,
+  });
+
+  const linkLabel = new Konva.Text({
+    x: 0,
+    y: 0,
+    text: 'Link de validação: ',
+    fontFamily: 'Inter',
+    fontSize: textSm,
+    fontStyle: fontMedium,
+    fill: textMutedForeground,
+  });
+
+  const linkValue = new Konva.Text({
+    x: linkLabel.width(), // Posiciona logo após o label
+    y: 0,
+    text: validationUrl,
+    fontFamily: 'Inter',
+    fontSize: textSm,
+    fill: '#2563eb', // Azul clicável (estilo Tailwind blue-600)
+  });
+
+  linkGroup.add(linkLabel);
+  linkGroup.add(linkValue);
+  textGroup.add(linkGroup);
+
+  branding.add(textGroup);
+
+  // --- 2. QR Code (Lado Direito) ---
+  const qrSvg = renderSVG(validationUrl, {
+    ecc: 'Q',
+  });
+
+  const svgImage = await svgToPng(qrSvg);
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-  const img = new SkiaImage(logo) as unknown as HTMLImageElement;
+  const qrSkiaImage = new SkiaImage(svgImage) as unknown as HTMLImageElement;
 
-  const documensoImage = new Konva.Image({
-    image: img,
-    height: brandingHeight,
-    width: brandingHeight * (img.width / img.height),
-    x: text.width() + 16,
+  const qrImage = new Konva.Image({
+    image: qrSkiaImage,
+    height: qrSize,
+    width: qrSize,
+    x: textGroup.getClientRect().width + 24, // Posiciona ao lado do grupo de textos
+    y: (textGroup.getClientRect().height - qrSize) / 2, // Centraliza verticalmente com o bloco de texto
   });
 
-  const qrSize = qrToken ? 72 : 0;
-
-  const logoGroup = new Konva.Group({
-    y: qrSize + 16,
-  });
-  logoGroup.add(text);
-  logoGroup.add(documensoImage);
-
-  branding.add(logoGroup);
-
-  if (qrToken) {
-    const qrSvg = renderSVG(`${NEXT_PUBLIC_WEBAPP_URL()}/share/${qrToken}`, {
-      ecc: 'Q',
-    });
-
-    const svgImage = await svgToPng(qrSvg);
-
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-    const qrSkiaImage = new SkiaImage(svgImage) as unknown as HTMLImageElement;
-    const qrImage = new Konva.Image({
-      image: qrSkiaImage,
-      height: qrSize,
-      width: qrSize,
-      x: branding.getClientRect().width - qrSize,
-      y: 0,
-    });
-
-    branding.add(qrImage);
-  }
+  branding.add(qrImage);
 
   return branding;
 };
